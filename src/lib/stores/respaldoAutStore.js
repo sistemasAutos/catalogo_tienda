@@ -1,5 +1,4 @@
-//src/lib/stores/authStore.js
-import { writable, derived } from 'svelte/store';
+import { writable } from 'svelte/store';
 import { browser } from '$app/environment';
 
 // Estado inicial
@@ -7,45 +6,35 @@ const initialState = {
   isAuthenticated: false,
   user: null,
   loading: false,
-  error: null,
-  initialized: false // Nuevo: para saber si ya se inicializó
+  error: null
 };
 
 function createAuthStore() {
   const { subscribe, set, update } = writable(initialState);
 
-  // Verificar autenticación al iniciar - UNA SOLA VEZ
+  // Verificar autenticación al iniciar
   const init = () => {
     if (!browser) return false;
     
-    update(state => {
-      if (state.initialized) return state; // Ya se inicializó
+    try {
+      const userStr = localStorage.getItem('auth_user');
+      const token = localStorage.getItem('auth_token');
       
-      try {
-        const userStr = localStorage.getItem('auth_user');
-        const token = localStorage.getItem('auth_token');
-        
-        if (userStr && token) {
-          const user = JSON.parse(userStr);
-          return {
-            isAuthenticated: true,
-            user,
-            loading: false,
-            error: null,
-            initialized: true
-          };
-        }
-      } catch (error) {
-        console.error('Error inicializando auth:', error);
+      if (userStr && token) {
+        const user = JSON.parse(userStr);
+        set({
+          isAuthenticated: true,
+          user,
+          loading: false,
+          error: null
+        });
+        return true;
       }
-      
-      return {
-        ...initialState,
-        initialized: true
-      };
-    });
+    } catch (error) {
+      console.error('Error inicializando auth:', error);
+    }
     
-    return true;
+    return false;
   };
 
   return {
@@ -76,8 +65,7 @@ function createAuthStore() {
           isAuthenticated: true,
           user,
           loading: false,
-          error: null,
-          initialized: true
+          error: null
         });
         
         return { success: true, user };
@@ -87,8 +75,7 @@ function createAuthStore() {
           isAuthenticated: false,
           user: null,
           loading: false,
-          error: errorMsg,
-          initialized: true
+          error: errorMsg
         });
         return { success: false, error: errorMsg };
       }
@@ -100,10 +87,7 @@ function createAuthStore() {
         localStorage.removeItem('auth_user');
         localStorage.removeItem('auth_token');
       }
-      set({
-        ...initialState,
-        initialized: true
-      });
+      set(initialState);
     },
     
     // Inicializar
@@ -113,5 +97,7 @@ function createAuthStore() {
 
 export const auth = createAuthStore();
 
-// NO inicializar automáticamente aquí
-// La inicialización se hará desde el layout
+// Inicializar al cargar
+if (browser) {
+  auth.init();
+}

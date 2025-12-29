@@ -1,9 +1,9 @@
-// src/routes/carrito/+page.server.js
+// src/routes/+layout.server.js
 import { supabase } from '$lib/supabaseClient';
 
 export async function load() {
   try {
-    // Cargar configuración para cálculos de impuestos
+    // Cargar configuración global para toda la aplicación
     const { data: configuracion, error } = await supabase
       .from('configuracion')
       .select('*')
@@ -18,18 +18,17 @@ export async function load() {
         nombre_empresa: 'CatálogoExpress',
         whatsapp_numero: '7121920418',
         moneda_simbolo: '$',
-        impuesto_porcentaje: 16
+        descripcion_empresa: 'Tienda en línea con pedidos por WhatsApp'
       }
     };
   } catch (error) {
-    console.error('Error en carrito load:', error);
+    console.error('Error en layout load:', error);
     return {
       configuracion: {
         nombre_empresa: 'CatálogoExpress',
         whatsapp_numero: '7121920418',
         moneda_simbolo: '$',
-        impuesto_porcentaje: 16
+        descripcion_empresa: 'Tienda en línea con pedidos por WhatsApp'
       }
     };
-  }
-}
+  }}

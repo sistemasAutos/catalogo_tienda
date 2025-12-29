@@ -1,35 +1,110 @@
+<!-- src/routes/carrito/+page.svelte -->
 <script>
-  import { ShoppingCart, Trash2, ArrowLeft, CreditCard, MessageCircle } from 'lucide-svelte';
-  import { carrito, subtotal, totalConImpuestos, carritoVacio } from '$lib/stores/carritoStore';
+  import { ShoppingCart, Trash2, ArrowLeft, MessageCircle, CheckCircle2, Loader2 } from 'lucide-svelte';
+  import { carrito, carritoVacio } from '$lib/stores/carritoStore';
   import CartItem from '$lib/components/cart/CartItem.svelte';
   import { generarEnlacePedido } from '$lib/utils/whatsapp';
+  import { goto } from '$app/navigation';
   
-  // Datos simulados de configuración
-  let configuracion = {
-    nombre_empresa: 'CatálogoExpress',
-    whatsapp_numero: '51987654321',
-    moneda_simbolo: 'S/',
-    impuesto_porcentaje: 18
-  };
+  export let data;
   
-  // Datos del cliente (podría venir de un formulario en el futuro)
+  // Configuración desde el servidor
+  $: configuracion = data.configuracion;
+  
+  // Calcular totales con impuesto de configuración
+  $: subtotal = $carrito.reduce((total, item) => 
+    total + (item.precio_unitario * item.cantidad), 0
+  );
+  $: impuestoPorcentaje = (configuracion?.impuesto_porcentaje || 18) / 100;
+  $: impuesto = subtotal * impuestoPorcentaje;
+  $: total = subtotal + impuesto;
+  
+  // Datos del cliente
   let datosCliente = {
     nombre: '',
-    telefono: ''
+    whatsapp: '',
+    email: '',
+    direccion: '',
+    notas: ''
   };
   
-  // Función para generar mensaje de WhatsApp usando la utilidad
-  function generarMensajeWhatsApp() {
-    const pedido = {
-      cliente_nombre: datosCliente.nombre || '',
-      cliente_whatsapp: datosCliente.telefono || ''
-    };
+  // Estados
+  let enviandoPedido = false;
+  let pedidoCreado = false;
+  let errorCreandoPedido = '';
+  let pedidoId = null;
+  
+  // Validar formulario
+  $: formularioValido = datosCliente.nombre.trim() !== '' && 
+                        datosCliente.whatsapp.trim() !== '';
+  
+  // Función para crear pedido en BD y enviar por WhatsApp
+  async function crearYEnviarPedido() {
+    if (!formularioValido || $carritoVacio || enviandoPedido) return;
+    
+    enviandoPedido = true;
+    errorCreandoPedido = '';
     
     try {
-      const url = generarEnlacePedido(pedido, $carrito, configuracion);
-      window.open(url, '_blank');
+      // 1. Crear pedido en Supabase
+      const pedidoData = {
+        items: $carrito.map(item => ({
+          id: item.id,
+          nombre: item.nombre,
+          sku: item.sku,
+          cantidad: item.cantidad,
+          precio_unitario: item.precio_unitario
+        })),
+        cliente_nombre: datosCliente.nombre,
+        cliente_whatsapp: datosCliente.whatsapp,
+        cliente_email: datosCliente.email || null,
+        cliente_direccion: datosCliente.direccion || null,
+        subtotal: subtotal,
+        impuesto: impuesto,
+        total: total,
+        notas: datosCliente.notas || null
+      };
+      
+      const response = await fetch('/api/pedidos', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(pedidoData)
+      });
+      
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Error creando el pedido');
+      }
+      
+      // 2. Pedido creado exitosamente
+      pedidoId = result.data.numero_pedido;
+      pedidoCreado = true;
+      
+      // 3. Generar y abrir enlace de WhatsApp
+      setTimeout(() => {
+        const pedidoWhatsApp = {
+          numero_pedido: result.data.numero_pedido,
+          cliente_nombre: datosCliente.nombre,
+          cliente_whatsapp: datosCliente.whatsapp
+        };
+        
+        const url = generarEnlacePedido(pedidoWhatsApp, $carrito, configuracion);
+        window.open(url, '_blank');
+        
+        // 4. Limpiar carrito después de enviar
+        setTimeout(() => {
+          carrito.limpiarCarrito();
+          goto('/?pedido=success');
+        }, 1500);
+      }, 1000);
+      
     } catch (error) {
-      alert(error.message);
+      console.error('Error creando pedido:', error);
+      errorCreandoPedido = error.message;
+      enviandoPedido = false;
     }
   }
   
@@ -41,20 +116,40 @@
   }
 </script>
 
+<svelte:head>
+  <title>Mi Carrito - {configuracion?.nombre_empresa || 'CatálogoExpress'}</title>
+</svelte:head>
+
 <div class="max-w-6xl mx-auto">
   <!-- Encabezado -->
   <div class="mb-8">
-    <a href="/" class="inline-flex items-center text-primary-600 hover:text-primary-800 mb-4">
+    <a href="/" class="inline-flex items-center text-primary-600 hover:text-primary-800 mb-4 transition-colors">
       <ArrowLeft class="w-4 h-4 mr-2" />
       Volver al catálogo
     </a>
     <h1 class="text-3xl font-bold text-gray-800">Mi Carrito</h1>
     <p class="text-gray-600 mt-2">
-      Revisa tu pedido y envíalo por WhatsApp para finalizar la compra
+      Revisa tu pedido y envíalo por WhatsApp
     </p>
   </div>
   
-  {#if $carritoVacio}
+  {#if pedidoCreado}
+    <!-- Confirmación de pedido -->
+    <div class="bg-white rounded-xl shadow-sm p-8 text-center">
+      <div class="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
+        <CheckCircle2 class="w-12 h-12 text-green-600" />
+      </div>
+      <h2 class="text-2xl font-bold text-gray-800 mb-2">¡Pedido Creado!</h2>
+      <p class="text-gray-600 mb-6">
+        Tu pedido <strong>{pedidoId}</strong> ha sido registrado exitosamente.
+        <br>Se está abriendo WhatsApp para que lo envíes...
+      </p>
+      <div class="flex items-center justify-center space-x-2 text-primary-600">
+        <Loader2 class="w-5 h-5 animate-spin" />
+        <span>Redirigiendo a WhatsApp...</span>
+      </div>
+    </div>
+  {:else if $carritoVacio}
     <!-- Carrito Vacío -->
     <div class="text-center py-16 bg-white rounded-xl shadow-sm border-2 border-dashed border-gray-300">
       <div class="max-w-md mx-auto">
@@ -76,7 +171,7 @@
       <!-- Lista de Productos -->
       <div class="lg:w-2/3">
         <div class="bg-white rounded-xl shadow-sm overflow-hidden">
-          <!-- Encabezado de la tabla -->
+          <!-- Encabezado -->
           <div class="bg-gray-50 px-6 py-4 border-b border-gray-200">
             <div class="flex justify-between items-center">
               <h2 class="font-semibold text-gray-700">
@@ -84,7 +179,8 @@
               </h2>
               <button
                 on:click={limpiarCarrito}
-                class="text-sm text-red-600 hover:text-red-800 flex items-center"
+                class="text-sm text-red-600 hover:text-red-800 flex items-center transition-colors"
+                disabled={enviandoPedido}
               >
                 <Trash2 class="w-4 h-4 mr-1" />
                 Vaciar carrito
@@ -92,39 +188,74 @@
             </div>
           </div>
           
-          <!-- Items del carrito -->
+          <!-- Items -->
           <div class="divide-y divide-gray-100">
             {#each $carrito as item (item.id)}
-              <CartItem {item} />
+              <CartItem {item} disabled={enviandoPedido} />
             {/each}
           </div>
           
-          <!-- Datos del cliente (opcional) -->
-          <div class="p-6 border-t border-gray-200">
-            <h3 class="font-medium text-gray-700 mb-4">Información de contacto (opcional)</h3>
+          <!-- Formulario de datos del cliente -->
+          <div class="p-6 border-t border-gray-200 bg-gray-50">
+            <h3 class="font-medium text-gray-700 mb-4">Información de contacto</h3>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label class="label">Tu nombre</label>
+                <label class="label">
+                  Tu nombre <span class="text-red-500">*</span>
+                </label>
                 <input
                   type="text"
                   bind:value={datosCliente.nombre}
                   placeholder="Ej: Juan Pérez"
                   class="input"
+                  disabled={enviandoPedido}
+                  required
                 />
               </div>
               <div>
-                <label class="label">Tu WhatsApp</label>
+                <label class="label">
+                  Tu WhatsApp <span class="text-red-500">*</span>
+                </label>
                 <input
                   type="tel"
-                  bind:value={datosCliente.telefono}
-                  placeholder="Ej: 987654321"
+                  bind:value={datosCliente.whatsapp}
+                  placeholder="Ej: 7121920418"
                   class="input"
+                  disabled={enviandoPedido}
+                  required
                 />
               </div>
+              <div>
+                <label class="label">Tu email (opcional)</label>
+                <input
+                  type="email"
+                  bind:value={datosCliente.email}
+                  placeholder="Ej: correo@ejemplo.com"
+                  class="input"
+                  disabled={enviandoPedido}
+                />
+              </div>
+              <div>
+                <label class="label">Dirección (opcional)</label>
+                <input
+                  type="text"
+                  bind:value={datosCliente.direccion}
+                  placeholder="Ej: Calle Principal 123"
+                  class="input"
+                  disabled={enviandoPedido}
+                />
+              </div>
+              <div class="md:col-span-2">
+                <label class="label">Notas adicionales (opcional)</label>
+                <textarea
+                  bind:value={datosCliente.notas}
+                  placeholder="¿Alguna indicación especial?"
+                  rows="2"
+                  class="input resize-none"
+                  disabled={enviandoPedido}
+                ></textarea>
+              </div>
             </div>
-            <p class="text-sm text-gray-500 mt-2">
-              Esta información se incluirá en el mensaje de WhatsApp para facilitar el contacto.
-            </p>
           </div>
         </div>
       </div>
@@ -134,75 +265,70 @@
         <div class="bg-white rounded-xl shadow-sm p-6 sticky top-24">
           <h2 class="text-xl font-bold text-gray-800 mb-6">Resumen del Pedido</h2>
           
-          <!-- Detalles del pedido -->
+          <!-- Detalles -->
           <div class="space-y-4 mb-6">
-            <div class="flex justify-between">
-              <span class="text-gray-600">Subtotal</span>
-              <span class="font-medium">{configuracion.moneda_simbolo}{$subtotal.toFixed(2)}</span>
+            <div class="flex justify-between text-gray-600">
+              <span>Subtotal ({$carrito.length} productos)</span>
+              <span class="font-medium">{configuracion.moneda_simbolo}{subtotal.toFixed(2)}</span>
             </div>
             
-            <div class="flex justify-between">
-              <span class="text-gray-600">Impuestos ({configuracion.impuesto_porcentaje}%)</span>
-              <span class="font-medium">{configuracion.moneda_simbolo}{($totalConImpuestos - $subtotal).toFixed(2)}</span>
+            <div class="flex justify-between text-gray-600">
+              <span>Impuestos ({configuracion.impuesto_porcentaje}%)</span>
+              <span class="font-medium">{configuracion.moneda_simbolo}{impuesto.toFixed(2)}</span>
             </div>
             
             <div class="border-t border-gray-200 pt-4">
               <div class="flex justify-between text-lg font-bold">
                 <span>Total</span>
-                <span class="text-primary-700">{configuracion.moneda_simbolo}{$totalConImpuestos.toFixed(2)}</span>
+                <span class="text-primary-700">{configuracion.moneda_simbolo}{total.toFixed(2)}</span>
               </div>
             </div>
           </div>
           
-          <!-- Botón de WhatsApp -->
+          <!-- Errores -->
+          {#if errorCreandoPedido}
+            <div class="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+              <p class="text-sm text-red-700">{errorCreandoPedido}</p>
+            </div>
+          {/if}
+          
+          <!-- Botón de envío -->
           <button
-            on:click={generarMensajeWhatsApp}
-            class="w-full btn-primary flex items-center justify-center gap-2 mb-4"
+            on:click={crearYEnviarPedido}
+            disabled={!formularioValido || enviandoPedido}
+            class="w-full btn-primary flex items-center justify-center gap-2 mb-4 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <MessageCircle class="w-5 h-5" />
-            Enviar pedido por WhatsApp
+            {#if enviandoPedido}
+              <Loader2 class="w-5 h-5 animate-spin" />
+              Creando pedido...
+            {:else}
+              <MessageCircle class="w-5 h-5" />
+              Crear y enviar por WhatsApp
+            {/if}
           </button>
           
-          <!-- Información adicional -->
-          <div class="text-sm text-gray-500 border-t border-gray-100 pt-4">
-            <p class="mb-2">
-              <strong>¿Cómo funciona?</strong>
+          {#if !formularioValido}
+            <p class="text-xs text-amber-600 text-center mb-4">
+              * Completa tu nombre y WhatsApp para continuar
             </p>
-            <ul class="list-disc pl-4 space-y-1">
-              <li>Tu pedido se enviará al número: {configuracion.whatsapp_numero}</li>
-              <li>Revisaremos disponibilidad y te contactaremos</li>
-              <li>Coordina el método de pago y entrega por WhatsApp</li>
-              <li>Sin costos adicionales por la plataforma</li>
-            </ul>
+          {/if}
+          
+          <!-- Información -->
+          <div class="text-sm text-gray-500 border-t border-gray-100 pt-4 space-y-2">
+            <p class="font-medium text-gray-700">¿Cómo funciona?</p>
+            <ol class="list-decimal pl-4 space-y-1">
+              <li>Tu pedido se guardará en nuestro sistema</li>
+              <li>Se abrirá WhatsApp con tu pedido listo</li>
+              <li>Envía el mensaje y te contactaremos</li>
+              <li>Coordinaremos pago y entrega</li>
+            </ol>
           </div>
           
-          <!-- Métodos de pago sugeridos -->
-          <div class="mt-6 pt-4 border-t border-gray-100">
-            <p class="text-sm font-medium text-gray-700 mb-2">Métodos de pago aceptados:</p>
-            <div class="flex items-center gap-2">
-              <div class="p-2 bg-green-50 rounded-md">
-                <CreditCard class="w-5 h-5 text-green-600" />
-              </div>
-              <span class="text-sm text-gray-600">Efectivo, Yape, Plin, Transferencia</span>
-            </div>
-          </div>
-        </div>
-        
-        <!-- Nota importante -->
-        <div class="mt-4 bg-blue-50 border border-blue-100 rounded-lg p-4">
-          <div class="flex">
-            <div class="flex-shrink-0">
-              <svg class="h-5 w-5 text-blue-400" fill="currentColor" viewBox="0 0 20 20">
-                <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/>
-              </svg>
-            </div>
-            <div class="ml-3">
-              <h3 class="text-sm font-medium text-blue-800">Importante</h3>
-              <div class="mt-2 text-sm text-blue-700">
-                <p>
-                  Este no es un sistema de pago en línea. El pedido se envía directamente al vendedor por WhatsApp para coordinar pago y entrega.
-                </p>
-              </div>
+          <!-- Seguridad -->
+          <div class="mt-4 pt-4 border-t border-gray-100">
+            <div class="flex items-center gap-2 text-xs text-gray-500">
+              <CheckCircle2 class="w-4 h-4 text-green-500" />
+              <span>Pedido seguro • Sin cargos automáticos</span>
             </div>
           </div>
         </div>
