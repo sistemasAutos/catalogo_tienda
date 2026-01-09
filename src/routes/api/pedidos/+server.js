@@ -10,6 +10,21 @@ export async function GET({ url }) {
     const page = parseInt(url.searchParams.get('page') || '1');
     const limit = parseInt(url.searchParams.get('limit') || '20');
     const estado = url.searchParams.get('estado');
+
+    const busqueda = url.searchParams.get('busqueda');
+
+    let query = supabaseAdmin
+      .from('pedidos')
+      .select(`
+        *,
+        items:pedidos_items(*)
+      `, { count: 'exact' })
+      .order('created_at', { ascending: false });
+
+    // ✅ AGREGAR FILTRO DE BÚSQUEDA
+    if (busqueda) {
+      query = query.or(`numero_pedido.ilike.%${busqueda}%,cliente_whatsapp.ilike.%${busqueda}%`);
+    }
     
     // ✅ CORRECCIÓN: SELECT directo con items en lugar de vista
     let query = supabaseAdmin
@@ -144,11 +159,17 @@ export async function POST({ request }) {
       cliente_whatsapp: body.cliente_whatsapp,
       cliente_email: body.cliente_email || null,
       cliente_direccion: body.cliente_direccion || null,
-      subtotal,
-      impuesto,
-      total,
+      subtotal: parseFloat(body.subtotal),
+      impuesto: parseFloat(body.impuesto),
+      costo_envio: parseFloat(body.costo_envio || 0),
+      total: parseFloat(body.total),
       estado: 'pendiente',
-      notas: body.notas || null
+      notas: body.notas || null,
+      // ✅ NUEVOS CAMPOS
+      factura: Boolean(body.factura),
+      envio: Boolean(body.envio),
+      metodo_pago: body.metodo_pago || null,
+      constancia_pago_url: body.constancia_pago_url || null
     };
     
     const { data: pedido, error: errorPedido } = await supabaseAdmin
