@@ -411,6 +411,7 @@
           </div>
         </div>
       </div>
+      
       <!-- 💳 MÉTODOS DE PAGO -->
       <div class="bg-white rounded-xl shadow-sm p-6 border-l-4 border-yellow-500">
         <h2 class="text-xl font-semibold text-gray-800 mb-6">Métodos de Pago</h2>
@@ -448,7 +449,7 @@
             bind:value={formData.cuentas_pago}
             rows="8"
             class="input font-mono text-xs"
-            placeholder='[{"banco":"BBVA","titular":"Empresa SA","numero_cuenta":"123456","clabe":"012345678901234567"}]'
+            placeholder={`[{"banco":"BBVA","titular":"Empresa SA","numero_cuenta":"123456","clabe":"012345678901234567"}]`}
           />
           <p class="text-xs text-gray-500 mt-1">
             Formato JSON. <a href="#" class="text-primary-600">Ver ejemplo</a>
