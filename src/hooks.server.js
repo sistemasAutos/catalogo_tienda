@@ -1,6 +1,6 @@
 // src/hooks.server.js
 import { redirect } from '@sveltejs/kit';
-
+import { rateLimit } from '$lib/server/middleware/rateLimiter';
 export async function handle({ event, resolve }) {
   const token = event.cookies.get('auth_token');
   const path = event.url.pathname;
@@ -13,7 +13,9 @@ export async function handle({ event, resolve }) {
     '/mensajes',
     '/configuracion',
     '/categorias',
-    '/reportes' 
+    '/reportes',
+    '/api/pedidos',
+  '/api/upload'
   ];
 
   // Si es ruta de login
@@ -53,6 +55,58 @@ export async function handle({ event, resolve }) {
       }
     }
   }
+  export async function handle({ event, resolve }) {
+  const path = event.url.pathname;
+  
+  if (path.startsWith('/api/')) {
+    const isProtected = PROTECTED_ROUTES.some(route => path.startsWith(route));
+    
+    if (isProtected) {
+      const check = rateLimit(event.request, path);
+      
+      if (!check.allowed) {
+        return json(
+          {
+            success: false,
+            error: check.error,
+            code: check.code,
+            retryAfter: check.retryAfter
+          },
+          { 
+            status: check.code === 'BLOCKED' ? 403 : 429,
+            headers: check.retryAfter 
+              ? { 'Retry-After': String(check.retryAfter) }
+              : {}
+          }
+        );
+      }
+      
+      const response = await resolve(event);
+      
+      response.headers.set('X-RateLimit-Remaining', String(check.remaining));
+      response.headers.set('X-RateLimit-Reset', String(check.resetTime));
+      
+      return response;
+    }
+  }
+  
+  return resolve(event);
+}
+
+export async function handleError({ error, event }) {
+  console.error('Error en aplicación:', {
+    message: error.message,
+    stack: error.stack,
+    path: event.url.pathname,
+    method: event.request.method
+  });
+  
+  return {
+    message: process.env.NODE_ENV === 'production' 
+      ? 'Ha ocurrido un error. Intenta de nuevo.' 
+      : error.message
+  };
+}
 
   return await resolve(event);
 }
