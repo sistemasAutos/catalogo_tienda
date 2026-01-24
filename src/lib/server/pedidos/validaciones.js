@@ -18,8 +18,12 @@ export function validarDatosCliente(datos) {
   
   if (!datos.cliente_whatsapp?.trim()) {
     errores.push('El WhatsApp del cliente es obligatorio');
-  } else if (!/^\d{10}$/.test(datos.cliente_whatsapp.replace(/\D/g, ''))) {
-    errores.push('El WhatsApp debe tener 10 dígitos');
+  } else {
+    // ✅ SANITIZAR Y VALIDAR
+    const whatsappLimpio = datos.cliente_whatsapp.replace(/\D/g, '');
+    if (whatsappLimpio.length !== 10) {
+      errores.push('El WhatsApp debe tener exactamente 10 dígitos');
+    }
   }
   
   if (datos.cliente_email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(datos.cliente_email)) {
