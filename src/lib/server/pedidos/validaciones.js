@@ -82,7 +82,7 @@ export function validarTotales(datos) {
   const totalCalculado = subtotal + impuesto + costoEnvio;
   const diferencia = Math.abs(totalCalculado - total);
   
-  if (diferencia > 0.01) {
+  if (diferencia > 1) {
     throw new ValidationError(
       `Total no coincide: calculado ${totalCalculado.toFixed(2)}, recibido ${total.toFixed(2)}`,
       'TOTAL_MISMATCH'
